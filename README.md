@@ -4,6 +4,8 @@ A small extension for `@earendil-works/pi-coding-agent` that lets an agent send 
 
 It starts a per-session Unix socket and installs a tiny `pi-notify` CLI. Messages sent through the CLI are delivered back into the chat as user follow-up messages prefixed with `[pi-notify]`.
 
+To install `pi-notify`, put this folder at `~/.pi/agent/extensions/pi-notify`.
+
 ## Usage
 
 Send a message to the current session:
