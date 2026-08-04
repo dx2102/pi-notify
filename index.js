@@ -1,12 +1,11 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createServer, type Server } from "node:net";
+import { createServer } from "node:net";
 import { chmodSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 
-let server: Server | null = null;
-let sockPath: string | null = null;
-let sessionId: string | null = null;
+let server = null;
+let sockPath = null;
+let sessionId = null;
 
 const BIN_DIR = join(homedir(), ".local", "bin");
 const BIN_PATH = join(BIN_DIR, "pi-notify");
@@ -38,7 +37,7 @@ function installCli() {
   }
 }
 
-function startSocket(api: ExtensionAPI) {
+function startSocket(api) {
   if (!sessionId) return;
   sockPath = join(tmpdir(), `pi-notify-${sessionId}.sock`);
   if (existsSync(sockPath)) unlinkSync(sockPath);
@@ -48,7 +47,7 @@ function startSocket(api: ExtensionAPI) {
     conn.on("data", (data) => {
       buf += data.toString();
       const lines = buf.split("\n");
-      buf = lines.pop()!;
+      buf = lines.pop();
       for (const line of lines) {
         const msg = line.trim();
         if (msg) {
@@ -73,7 +72,7 @@ function stopSocket() {
   }
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi) {
   installCli();
 
   pi.on("session_start", async (_event, ctx) => {
@@ -85,10 +84,10 @@ export default function (pi: ExtensionAPI) {
     stopSocket();
   });
 
-  pi.on("before_agent_start", async (_event, _ctx) => {
+  pi.on("before_agent_start", async (event) => {
     if (!sessionId) return {};
     return {
-      systemPrompt: `## pi-notify
+      systemPrompt: `${event.systemPrompt}\n\n## pi-notify
 
 pi-notify 让 agent 可以在无人值守的情况下自我唤醒、执行定时任务。消息会加上 [pi-notify] 前缀，以用户消息的身份发入聊天。
 用途包括：预设一次性任务、周期性循环执行、外部脚本回调、agent 间通信。
@@ -103,28 +102,44 @@ pi-notify 让 agent 可以在无人值守的情况下自我唤醒、执行定时
 
 **启动**（启动后必须立即 echo $! 记录 PID）
 
-# 一次性（N 秒后触发一次）
-nohup bash -c "sleep <秒数> && pi-notify $PI_SESSION_ID '<触发消息>'" &
+一次性（60 秒后触发一次）：
+
+nohup python -u - "$PI_SESSION_ID" <<'PY' &
+import subprocess
+import sys
+import time
+
+time.sleep(60)
+subprocess.run(
+    ["pi-notify", sys.argv[1], "推进项目"],
+    check=True,
+)
+PY
 echo "PID: $!"
 
-# 周期性（每隔 N 秒重复，直到手动取消）
-nohup bash -c "while true; do sleep <秒数>; pi-notify $PI_SESSION_ID '<触发消息>'; done" &
+周期性（每隔 300 秒重复，直到手动取消）：
+
+nohup python -u - "$PI_SESSION_ID" <<'PY' &
+import subprocess
+import sys
+import time
+
+while True:
+    time.sleep(300)
+    subprocess.run(
+        ["pi-notify", sys.argv[1], "推进项目"],
+        check=False,
+    )
+PY
 echo "PID: $!"
 
 **查看本 session 的通知进程**
 
-pgrep -af $PI_SESSION_ID
+pgrep -af "$PI_SESSION_ID"
 
 **取消**
 
 kill <启动时记录的 PID>    # 用 PID 精确取消，不要用 pkill`,
     };
-  });
-
-  // Inject PI_SESSION_ID into every LLM bash call so subprocesses inherit it
-  pi.on("tool_call", async (event) => {
-    if (event.toolName === "bash" && sessionId) {
-      event.input.command = `export PI_SESSION_ID=${sessionId}\n${event.input.command}`;
-    }
   });
 }
